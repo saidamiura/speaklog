@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>🎤 音声録音→Dify自動送信</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f7fa;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background-color: #007bff;
+      color: white;
+      margin: 10px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #aaa;
+      cursor: not-allowed;
+    }
+    #status {
+      margin-top: 20px;
+      font-size: 16px;
+      color: #333;
+    }
+    #responseBox {
+      margin-top: 20px;
+      width: 80%;
+      max-width: 600px;
+      padding: 10px;
+      background-color: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎙️ 音声→Dify送信</h1>
+  <button id="startBtn">▶️ 録音開始</button>
+  <button id="stopBtn" disabled>⏹️ 録音停止＆送信</button>
+  <div id="status">ステータス: 待機中</div>
+  <div id="responseBox">（Difyからの返答がここに表示されます）</div>
+
+  <script>
+    const API_KEY = "app-aa3FHbkzutlfVORuLn3zyxIE";
+    let mediaRecorder;
+    let recordedChunks = [];
+
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const statusDiv = document.getElementById("status");
+    const responseBox = document.getElementById("responseBox");
+
+    startBtn.addEventListener("click", async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+
+      recordedChunks = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(recordedChunks, { type: "audio/webm" });
+        statusDiv.innerText = "ステータス: アップロード中...";
+
+        const formData = new FormData();
+        formData.append("file", blob, "recording.webm");
+
+        try {
+          const uploadRes = await fetch("https://api.dify.ai/v1/files/upload", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${API_KEY}`
+            },
+            body: formData
+          });
+
+          const uploadData = await uploadRes.json();
+          const fileId = uploadData.id;
+
+          statusDiv.innerText = "ステータス: チャット送信中...";
+
+          const chatRes = await fetch("https://api.dify.ai/v1/chat-messages", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              response_mode: "blocking",
+              user: "voice-auto",
+              files: [fileId],
+              query: "この音声を解析してください"
+            })
+          });
+
+          const chatData = await chatRes.json();
+          const reply = chatData.answer || "(返答がありません)";
+          statusDiv.innerText = "ステータス: 完了 ✅";
+          responseBox.innerText = reply;
+        } catch (err) {
+          console.error(err);
+          statusDiv.innerText = "ステータス: エラーが発生しました ❌";
+          responseBox.innerText = err.message;
+        }
+      };
+
+      mediaRecorder.start();
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      statusDiv.innerText = "ステータス: 録音中...";
+    });
+
+    stopBtn.addEventListener("click", () => {
+      mediaRecorder.stop();
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
+  </script>
+</body>
+</html>
