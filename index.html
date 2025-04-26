@@ -13,52 +13,55 @@
       justify-content: center;
       height: 100vh;
       margin: 0;
+      padding: 20px;
     }
     h1 {
-      margin-bottom: 20px;
+      margin-bottom: 30px;
+      font-size: 36px;
     }
     button {
-      padding: 12px 24px;
-      font-size: 16px;
+      padding: 24px 48px;
+      font-size: 22px;
       border: none;
-      border-radius: 8px;
+      border-radius: 12px;
       background-color: #007bff;
       color: white;
-      margin: 10px;
+      margin: 12px;
       cursor: pointer;
     }
     button:disabled {
-      background-color: #aaa;
+      background-color: #999;
       cursor: not-allowed;
     }
     #status {
-      margin-top: 20px;
-      font-size: 16px;
+      margin-top: 24px;
+      font-size: 20px;
       color: #333;
     }
     #responseBox {
-      margin-top: 20px;
-      width: 80%;
-      max-width: 600px;
-      padding: 10px;
+      margin-top: 24px;
+      width: 90%;
+      max-width: 800px;
+      padding: 24px;
       background-color: #fff;
       border: 1px solid #ccc;
-      border-radius: 6px;
+      border-radius: 8px;
       white-space: pre-wrap;
+      font-size: 20px;
+      color: #222;
     }
   </style>
 </head>
 <body>
-  <h1>🎙️ 音声→Dify送信</h1>
+  <h1>🎙️ 音声録音→Dify自動送信＆結果表示</h1>
   <button id="startBtn">▶️ 録音開始</button>
   <button id="stopBtn" disabled>⏹️ 録音停止＆送信</button>
   <div id="status">ステータス: 待機中</div>
-  <div id="responseBox">（Difyからの返答がここに表示されます）</div>
+  <div id="responseBox">（ここにDifyの応答が表示されます）</div>
 
   <script>
-    const API_KEY = "app-aa3FHbkzutlfVORuLn3zyxIE";
-    let mediaRecorder;
-    let recordedChunks = [];
+    const API_KEY = "app-aa3FHbkzutlfVORuLn3zyxIE";  // あなたのDify APIキー
+    let mediaRecorder, recordedChunks = [];
 
     const startBtn = document.getElementById("startBtn");
     const stopBtn = document.getElementById("stopBtn");
@@ -68,8 +71,8 @@
     startBtn.addEventListener("click", async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream);
-
       recordedChunks = [];
+
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) recordedChunks.push(e.data);
       };
@@ -78,22 +81,34 @@
         const blob = new Blob(recordedChunks, { type: "audio/webm" });
         statusDiv.innerText = "ステータス: アップロード中...";
 
-        const formData = new FormData();
-        formData.append("file", blob, "recording.webm");
-
         try {
+          // 1) ファイルアップロード
+          const formData = new FormData();
+          formData.append("file", blob, "recording.webm");
           const uploadRes = await fetch("https://api.dify.ai/v1/files/upload", {
             method: "POST",
-            headers: {
-              "Authorization": `Bearer ${API_KEY}`
-            },
+            headers: { "Authorization": `Bearer ${API_KEY}` },
             body: formData
           });
-
           const uploadData = await uploadRes.json();
           const fileId = uploadData.id;
+          console.log("uploadData:", uploadData);
 
+          // 2) チャット送信 (voice_upload変数を使う)
           statusDiv.innerText = "ステータス: チャット送信中...";
+          const payload = {
+            inputs: {
+              voice_upload: {
+                type: "file",
+                transfer_method: "local_file",
+                upload_file_id: fileId
+              }
+            },
+            query: "音声を文字起こしし、要約してください。",
+            response_mode: "blocking",
+            user: "voice-auto"
+          };
+          console.log("chatPayload:", payload);
 
           const chatRes = await fetch("https://api.dify.ai/v1/chat-messages", {
             method: "POST",
@@ -101,15 +116,12 @@
               "Authorization": `Bearer ${API_KEY}`,
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-              response_mode: "blocking",
-              user: "voice-auto",
-              files: [fileId],
-              query: "この音声を解析してください"
-            })
+            body: JSON.stringify(payload)
           });
 
           const chatData = await chatRes.json();
+          console.log("chatData:", chatData);
+
           const reply = chatData.answer || "(返答がありません)";
           statusDiv.innerText = "ステータス: 完了 ✅";
           responseBox.innerText = reply;
